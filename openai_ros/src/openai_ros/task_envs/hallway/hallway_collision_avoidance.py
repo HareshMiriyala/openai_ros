@@ -24,7 +24,7 @@ register(
 class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
     def __init__(self):
 
-        self.action_space = spaces.Discrete(4)
+        self.action_space = spaces.Discrete(3)
         self.reward_range = (-np.inf, np.inf)
 
         # This is the most common case of Box observation type
@@ -39,16 +39,16 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         self.last_time = time.time()
 
         # define rewards
-        self.move_towards_target = 50
+        self.move_towards_target = 10
         self.forward_reward = 10
         self.turn_reward = 5
-        self.backward_reward = 2
-        self.stop_reward = -10
+        # self.backward_reward = 2
+        # self.stop_reward = -10
         self.end_episode_points = -10000
 
 
         self.dec_obs = 5
-        self.min_range = 0.30
+        self.min_range = 0.35
 
         self.success = False #did both the robots cross over safely ?
         # Here we will add any init functions prior to starting the MyRobotEnv
@@ -120,10 +120,10 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         #     linear_speed = -1.0
         #     angular_speed = 0.0
         #     self.last_action = "BACKWARDS"
-        elif action == 3: # STOP
-            linear_speed = 0.0
-            angular_speed = 0.0
-            self.last_action = "STOP"
+        # elif action == 3: # STOP
+        #     linear_speed = 0.0
+        #     angular_speed = 0.0
+        #     self.last_action = "STOP"
 
         # We tell Segbot the linear and angular speed to set to execute
         self.move_base(linear_speed,
@@ -162,8 +162,12 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
             stop_command = Twist()
             stop_command.linear.x=0
             self._tom_cmd_vel_pub.publish(stop_command)
-            self._episode_done = True
+            # self._episode_done = True
         # return np.expand_dims(discretized_observations,axis=0)
+        jerry_current_position = 10.0 - self.get_jerry_odom().pose.pose.position.x # offset for the origin position in gazebo
+        if jerry_current_position<0:
+            self._episode_done = True  # if robot leaves hallway without entering
+
         return discretized_observations
 
     def _is_done(self, observations):
@@ -188,8 +192,8 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
                 reward = self.turn_reward
             # elif self.last_action == "BACKWARDS":
             #     reward = self.backward_reward
-            elif self.last_action == "STOP":
-                reward = self.stop_reward
+            # elif self.last_action == "STOP":
+            #     reward = self.stop_reward
         else:
             if self.success == False:
                 reward = self.end_episode_points
@@ -208,9 +212,8 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         distance_progressed_towards_goal = jerry_current_position - self.jerry_last_position
         if distance_progressed_towards_goal>0:
             reward += self.move_towards_target
-
-        # set current position as last position in variable.
-        self.jerry_last_position = jerry_current_position
+            # set current position as last position in variable.
+            self.jerry_last_position = jerry_current_position
 
         rospy.logwarn("reward=" + str(reward))
         self.cumulated_reward += reward
