@@ -39,14 +39,16 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         self.last_time = time.time()
 
         # define rewards
+        self.move_towards_target = 50
         self.forward_reward = 10
-        self.turn_reward = 2
+        self.turn_reward = 5
         self.backward_reward = 2
-        self.stop_reward = -5
-        self.end_episode_points = 10000 # negative value taken care of in _compute_reward() function
+        self.stop_reward = -10
+        self.end_episode_points = -10000
+
 
         self.dec_obs = 5
-        self.min_range = 0.35
+        self.min_range = 0.30
 
         self.success = False #did both the robots cross over safely ?
         # Here we will add any init functions prior to starting the MyRobotEnv
@@ -88,6 +90,10 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         stop_command = Twist()
         stop_command.linear.x = 1.0
         self._tom_cmd_vel_pub.publish(stop_command)
+
+        # wrt the robot's initial position as origin
+        self.jerry_last_position = 0.0
+        self.tom_last_position = 0.0
 
         # reset success reward signal
         self.success = False
@@ -145,7 +151,7 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         rospy.logdebug("Observations==>" + str(discretized_observations))
         rospy.logdebug("AFTER DISCRET_episode_done==>" + str(self._episode_done))
         rospy.logdebug("END Get Observation ==>")
-        print('Discretized observations :: ',discretized_observations)
+        # print('Discretized observations :: ',discretized_observations)
 
         jerry_odom = self.get_jerry_odom()
         tom_odom = self.get_tom_odom()
@@ -159,6 +165,7 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
             self._episode_done = True
         # return np.expand_dims(discretized_observations,axis=0)
         return discretized_observations
+
     def _is_done(self, observations):
         """
         Decide if episode is done based on the observations
@@ -185,7 +192,7 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
                 reward = self.stop_reward
         else:
             if self.success == False:
-                reward = -1 * self.end_episode_points
+                reward = self.end_episode_points
             else :
                 reward = 100000
                 rospy.logerr("SUCCESS :: Both Robots Successfully Completed crossover !")
@@ -194,6 +201,16 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         # reward= reward-(time.time()-self.last_time)*5.0
 
         # self.last_time = time.time()
+
+        #reward for moving towards goal
+        jerry_current_position = 10.0 - self.get_jerry_odom().pose.pose.position.x # offset for the origin position in gazebo
+        # tom_current_position = self.get_tom_odom().pose.pose.position.x
+        distance_progressed_towards_goal = jerry_current_position - self.jerry_last_position
+        if distance_progressed_towards_goal>0:
+            reward += self.move_towards_target
+
+        # set current position as last position in variable.
+        self.jerry_last_position = jerry_current_position
 
         rospy.logwarn("reward=" + str(reward))
         self.cumulated_reward += reward
