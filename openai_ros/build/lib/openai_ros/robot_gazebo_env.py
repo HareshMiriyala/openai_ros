@@ -45,9 +45,7 @@ class RobotGazeboEnv(gym.Env):
         rospy.logdebug("START STEP OpenAIROS")
         
         self.gazebo.unpauseSim()
-
         self._set_action(action)
-
         self.gazebo.pauseSim()
         obs = self._get_obs()
         done = self._is_done(obs)
