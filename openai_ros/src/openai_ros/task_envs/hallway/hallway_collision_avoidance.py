@@ -28,12 +28,17 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         self.action_space = spaces.Discrete(3)
         self.reward_range = (-np.inf, np.inf)
 
-        # This is the most common case of Box observation type
+        # Observation space : 20 laser scan ranges + 2 odometry
         self.n_observations = 20
         self.max_laser_value = 20.0
         self.min_laser_value = 0.019999999553
         high = np.full((self.n_observations), self.max_laser_value)
         low = np.full((self.n_observations), self.min_laser_value)
+
+        # add odometery to observations
+        self.n_observations+=2
+        high = np.append(high,[10,10])
+        low = np.append(low,[-10,-10])
 
         self.observation_space = spaces.Box(low, high,dtype=np.float64)
         self.cumulated_steps = 0.0
@@ -168,6 +173,8 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         jerry_current_position = 10.0 - self.get_jerry_odom().pose.pose.position.x # offset for the origin position in gazebo
         if jerry_current_position<0:
             self._episode_done = True  # if robot leaves hallway without entering
+
+        # add odometry information to observation
         discretized_observations.append(jerry_odom.pose.pose.position.x)
         discretized_observations.append(jerry_odom.pose.pose.position.y)
         return discretized_observations
