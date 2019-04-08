@@ -8,6 +8,7 @@ from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Header
 import rospy
 import numpy as np
+from math import exp
 import time
 import math
 
@@ -40,11 +41,11 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
 
         # define rewards
         self.move_towards_target = 10
-        self.forward_reward = 10
-        self.turn_reward = 5
+        self.forward_reward = 50
+        self.turn_reward = -20
         # self.backward_reward = 2
         # self.stop_reward = -10
-        self.end_episode_points = -10000
+        self.end_episode_points = -100
 
 
         self.dec_obs = 5
@@ -167,7 +168,8 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         jerry_current_position = 10.0 - self.get_jerry_odom().pose.pose.position.x # offset for the origin position in gazebo
         if jerry_current_position<0:
             self._episode_done = True  # if robot leaves hallway without entering
-
+        discretized_observations.append(jerry_odom.pose.pose.position.x)
+        discretized_observations.append(jerry_odom.pose.pose.position.y)
         return discretized_observations
 
     def _is_done(self, observations):
@@ -194,6 +196,22 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
             #     reward = self.backward_reward
             # elif self.last_action == "STOP":
             #     reward = self.stop_reward
+
+            # reward for moving towards goal in forward direction
+            jerry_current_position = 10.0 - self.get_jerry_odom().pose.pose.position.x  # offset for the origin position in gazebo
+            # tom_current_position = self.get_tom_odom().pose.pose.position.x
+            distance_since_last_reward = jerry_current_position - self.jerry_last_position
+            if self.last_action=="FORWARDS" and distance_since_last_reward > 0.1:
+                rospy.logerr("achieved distance reward!")
+                reward += self.move_towards_target
+                # set current position as last position in variable.
+                self.jerry_last_position = jerry_current_position
+
+            # reward for maximizing distance from the wall
+            # print('exp minimum observation is : ',exp(min(observations)))
+            if exp(min(observations))<50:
+                reward += exp(min(observations))
+
         else:
             if self.success == False:
                 reward = self.end_episode_points
@@ -201,21 +219,8 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
                 reward = 100000
                 rospy.logerr("SUCCESS :: Both Robots Successfully Completed crossover !")
 
-        # account for time taken
-        # reward= reward-(time.time()-self.last_time)*5.0
 
-        # self.last_time = time.time()
-
-        #reward for moving towards goal
-        jerry_current_position = 10.0 - self.get_jerry_odom().pose.pose.position.x # offset for the origin position in gazebo
-        # tom_current_position = self.get_tom_odom().pose.pose.position.x
-        distance_progressed_towards_goal = jerry_current_position - self.jerry_last_position
-        if distance_progressed_towards_goal>0:
-            reward += self.move_towards_target
-            # set current position as last position in variable.
-            self.jerry_last_position = jerry_current_position
-
-        rospy.logwarn("reward=" + str(reward))
+        # rospy.logwarn("reward=" + str(reward))
         self.cumulated_reward += reward
         rospy.logdebug("Cumulated_reward=" + str(self.cumulated_reward))
         self.cumulated_steps += 1
@@ -244,7 +249,7 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
 
         for i, item in enumerate(data.ranges):
             if (i % mod == 0):
-                if item == float('Inf') or np.isinf(item):
+                if item == float('Inf') or np.isinf(item) or item>max_laser_value:
                     # discretized_ranges.append(self.max_laser_value)
                     discretized_ranges.append(round(max_laser_value, self.dec_obs))
                 elif np.isnan(item):
