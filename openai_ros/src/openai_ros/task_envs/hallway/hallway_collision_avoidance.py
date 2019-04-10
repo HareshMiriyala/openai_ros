@@ -2,11 +2,15 @@ from gym import spaces
 from openai_ros.robot_envs import hallway_env
 from gym.envs.registration import register
 from geometry_msgs.msg import Twist
+import cv2
+import ros_numpy
 
 import rospy
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Header
 import rospy
+from cv_bridge import CvBridge, CvBridgeError
+
 import numpy as np
 from math import exp
 import time
@@ -36,11 +40,16 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         low = np.full((self.n_observations), self.min_laser_value)
 
         # add odometery to observations
-        self.n_observations+=2
-        high = np.append(high,[10,10])
-        low = np.append(low,[-10,-10])
+        self.n_observations+=3
+        self.high = np.append(high,[10,10,1])
+        self.low = np.append(low,[-10,-10,-1])
 
-        self.observation_space = spaces.Box(low, high,dtype=np.float64)
+        # observation space between 0-1
+        # self.observation_space = spaces.Box(np.zeros(self.n_observations), np.ones(self.n_observations),dtype=np.float64)
+
+        # kinect depth as observation space
+        self.observation_space = spaces.Box(low=0, high=255,shape=(64,128,1),dtype=np.uint8)
+
         self.cumulated_steps = 0.0
         self.last_time = time.time()
 
@@ -52,6 +61,12 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         # self.stop_reward = -10
         self.end_episode_points = -100
 
+        self.target = 20.0
+        self.reward_min_dist_to_goal = 5.0
+        self.reward_max_dist_to_goal = -5.0
+        self.reward_crashing = -100.0
+        self.reward_time_taken = -1.0
+        self.reward_goal_reached = 10000.0
 
         self.dec_obs = 5
         self.min_range = 0.35
@@ -115,12 +130,12 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
             angular_speed = 0.0
             self.last_action = "FORWARDS"
         elif action == 1:  # LEFT
-            linear_speed = 0.2
-            angular_speed = 0.8
+            linear_speed = 0.0
+            angular_speed = 0.5
             self.last_action = "TURN_LEFT"
         elif action == 2:  # RIGHT
-            linear_speed = 0.2
-            angular_speed = -1 * 0.8
+            linear_speed = 0.0
+            angular_speed = -0.5
             self.last_action = "TURN_RIGHT"
         # elif action == 3: # BACKWARD
         #     linear_speed = -1.0
@@ -177,7 +192,27 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         # add odometry information to observation
         discretized_observations.append(jerry_odom.pose.pose.position.x)
         discretized_observations.append(jerry_odom.pose.pose.position.y)
-        return discretized_observations
+        discretized_observations.append(jerry_odom.pose.pose.orientation.z)
+        print('observation : ',discretized_observations)
+
+        # normalize observations - min max scaling
+        discretized_observations = (discretized_observations-self.low)/(self.high-self.low)
+        # return discretized_observations
+        jerry_kinect_depth =  self._get_jerry_kinect_depth()
+        br = not CvBridge()
+        # jerry_kinect_depth = br.imgmsg_to_cv2(jerry_kinect_depth, "mono8")
+        jerry_kinect_depth = ros_numpy.numpify(jerry_kinect_depth)
+        jerry_kinect_depth = cv2.resize(jerry_kinect_depth, dsize=(128, 64), interpolation=cv2.INTER_CUBIC)
+        jerry_kinect_depth_normalized = cv2.normalize(jerry_kinect_depth,None,alpha=0,beta=1,norm_type=cv2.NORM_MINMAX,dtype=cv2.CV_32F)
+
+        cv2.imshow('jerry depth image',jerry_kinect_depth_normalized)
+        cv2.waitKey(10)
+
+        jerry_kinect_depth = np.expand_dims(jerry_kinect_depth,axis=2)
+        print(jerry_kinect_depth.shape)
+
+        return jerry_kinect_depth
+
 
     def _is_done(self, observations):
         """
@@ -194,44 +229,64 @@ class HallwayCollisionAvoidance(hallway_env.HallwayEnv):
         """
         Return the reward based on the observations given
         """
+        # if not done:
+        #     if self.last_action == "FORWARDS":
+        #         reward = self.forward_reward
+        #     elif self.last_action == "TURN_LEFT" or self.last_action == "TURN_RIGHT":
+        #         reward = self.turn_reward
+        #     # elif self.last_action == "BACKWARDS":
+        #     #     reward = self.backward_reward
+        #     # elif self.last_action == "STOP":
+        #     #     reward = self.stop_reward
+        #
+        #     # reward for moving towards goal in forward direction
+        #     jerry_current_position = 10.0 - self.get_jerry_odom().pose.pose.position.x  # offset for the origin position in gazebo
+        #     # tom_current_position = self.get_tom_odom().pose.pose.position.x
+        #     distance_since_last_reward = jerry_current_position - self.jerry_last_position
+        #     if self.last_action=="FORWARDS" and distance_since_last_reward > 0.1:
+        #         rospy.logerr("achieved distance reward!")
+        #         reward += self.move_towards_target
+        #         # set current position as last position in variable.
+        #         self.jerry_last_position = jerry_current_position
+        #
+        #     # reward for maximizing distance from the wall
+        #     # print('exp minimum observation is : ',exp(min(observations)))
+        #     if exp(min(observations))<50:
+        #         reward += exp(min(observations))
+        #
+        # else:
+        #     if self.success == False:
+        #         reward = self.end_episode_points
+        #     else :
+        #         reward = 100000
+        #         rospy.logerr("SUCCESS :: Both Robots Successfully Completed crossover !")
+
+        # new rewards, after meeting on April 8th, 2019
+        jerry_current_position = 10.0 - self.get_jerry_odom().pose.pose.position.x
+        distance_moved_towards_target = jerry_current_position-self.jerry_last_position
+
         if not done:
-            if self.last_action == "FORWARDS":
-                reward = self.forward_reward
-            elif self.last_action == "TURN_LEFT" or self.last_action == "TURN_RIGHT":
-                reward = self.turn_reward
-            # elif self.last_action == "BACKWARDS":
-            #     reward = self.backward_reward
-            # elif self.last_action == "STOP":
-            #     reward = self.stop_reward
-
-            # reward for moving towards goal in forward direction
-            jerry_current_position = 10.0 - self.get_jerry_odom().pose.pose.position.x  # offset for the origin position in gazebo
-            # tom_current_position = self.get_tom_odom().pose.pose.position.x
-            distance_since_last_reward = jerry_current_position - self.jerry_last_position
-            if self.last_action=="FORWARDS" and distance_since_last_reward > 0.1:
-                rospy.logerr("achieved distance reward!")
-                reward += self.move_towards_target
-                # set current position as last position in variable.
+            # distance reward
+            if distance_moved_towards_target>=0:
+                reward = self.reward_min_dist_to_goal
                 self.jerry_last_position = jerry_current_position
+            elif distance_moved_towards_target<0:
+                reward = self.reward_max_dist_to_goal
 
-            # reward for maximizing distance from the wall
-            # print('exp minimum observation is : ',exp(min(observations)))
-            if exp(min(observations))<50:
-                reward += exp(min(observations))
-
-        else:
-            if self.success == False:
-                reward = self.end_episode_points
+        else :
+            if self.success:
+                reward = self.reward_goal_reached
             else :
-                reward = 100000
-                rospy.logerr("SUCCESS :: Both Robots Successfully Completed crossover !")
+                reward = self.reward_crashing
 
+        # penalize for time taken
+        reward+=self.reward_time_taken
 
-        # rospy.logwarn("reward=" + str(reward))
-        self.cumulated_reward += reward
-        rospy.logdebug("Cumulated_reward=" + str(self.cumulated_reward))
-        self.cumulated_steps += 1
-        rospy.logdebug("Cumulated_steps=" + str(self.cumulated_steps))
+        rospy.logwarn("reward=" + str(reward))
+        # self.cumulated_reward += reward
+        # rospy.logdebug("Cumulated_reward=" + str(self.cumulated_reward))
+        # self.cumulated_steps += 1
+        # rospy.logdebug("Cumulated_steps=" + str(self.cumulated_steps))
         
         return reward
 

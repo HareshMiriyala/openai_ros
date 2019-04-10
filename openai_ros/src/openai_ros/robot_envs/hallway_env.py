@@ -42,6 +42,8 @@ class HallwayEnv(robot_gazebo_env.RobotGazeboEnv):
         rospy.Subscriber("/tom/scan_filtered", LaserScan, self._tom_laser_scan_callback)
         rospy.Subscriber("/jerry/scan_filtered", LaserScan, self._jerry_laser_scan_callback)
 
+        rospy.Subscriber("/jerry/nav_kinect/depth/image_raw", Image, self._jerry_kinect_depth_callback)
+
         self._tom_cmd_vel_pub = rospy.Publisher('/tom/cmd_vel', Twist, queue_size=1)
         self._jerry_cmd_vel_pub = rospy.Publisher('/jerry/cmd_vel', Twist, queue_size=1)
 
@@ -79,6 +81,11 @@ class HallwayEnv(robot_gazebo_env.RobotGazeboEnv):
     def get_jerry_laser_scan(self):
         return self.jerry_laser_scan
 
+    def _jerry_kinect_depth_callback(self, data):
+        self.jerry_kinect_data = data
+
+    def _get_jerry_kinect_depth(self):
+        return self.jerry_kinect_data
 
     def _tom_odom_callback(self,data):
         self.tom_odom = data
