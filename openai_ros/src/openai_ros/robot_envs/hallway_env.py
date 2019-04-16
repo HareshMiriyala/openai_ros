@@ -43,6 +43,8 @@ class HallwayEnv(robot_gazebo_env.RobotGazeboEnv):
         rospy.Subscriber("/jerry/scan_filtered", LaserScan, self._jerry_laser_scan_callback)
 
         rospy.Subscriber("/jerry/nav_kinect/depth/image_raw", Image, self._jerry_kinect_depth_callback)
+        rospy.Subscriber("/jerry/nav_kinect/rgb/image_raw", Image, self._jerry_kinect_rgb_callback)
+
 
         self._tom_cmd_vel_pub = rospy.Publisher('/tom/cmd_vel', Twist, queue_size=1)
         self._jerry_cmd_vel_pub = rospy.Publisher('/jerry/cmd_vel', Twist, queue_size=1)
@@ -83,9 +85,13 @@ class HallwayEnv(robot_gazebo_env.RobotGazeboEnv):
 
     def _jerry_kinect_depth_callback(self, data):
         self.jerry_kinect_data = data
-
     def _get_jerry_kinect_depth(self):
         return self.jerry_kinect_data
+
+    def _jerry_kinect_rgb_callback(self, data):
+        self.jerry_kinect_rgb = data
+    def _get_jerry_kinect_rgb(self):
+        return self.jerry_kinect_rgb
 
     def _tom_odom_callback(self,data):
         self.tom_odom = data
@@ -121,8 +127,8 @@ class HallwayEnv(robot_gazebo_env.RobotGazeboEnv):
         rospy.logdebug("Waiting for /odom to be READY...")
         while (self.tom_odom is None) and (self.jerry_odom is None) and not rospy.is_shutdown():
             try:
-                self.tom_odom = rospy.wait_for_message("/tom/odom", Odometry, timeout=5.0)
-                self.jerry_odom = rospy.wait_for_message("/jerry/odom", Odometry, timeout=5.0)
+                self.tom_odom = rospy.wait_for_message("tom/odom", Odometry, timeout=10.0)
+                self.jerry_odom = rospy.wait_for_message("jerry/odom", Odometry, timeout=10.0)
                 rospy.logdebug("Current /odom READY=>")
             except:
                 rospy.logerr("Tom and Jerry /odom not ready yet, retrying for getting odom")
